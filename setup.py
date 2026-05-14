@@ -1,10 +1,10 @@
 from setuptools import setup
-import os
 
 APP = ['main.py']
 
 OPTIONS = {
     'argv_emulation': False,
+    'iconfile': 'icon.icns',
     'packages': [
         'src',
         'PyQt6',
@@ -26,8 +26,8 @@ OPTIONS = {
         'CFBundleName': 'SerialMonitor',
         'CFBundleDisplayName': 'Serial Monitor',
         'CFBundleIdentifier': 'com.banbatakumi.serialmonitor',
-        'CFBundleVersion': '1.0.3',
-        'CFBundleShortVersionString': '1.0.3',
+        'CFBundleVersion': '1.0.4',
+        'CFBundleShortVersionString': '1.0.4',
         'NSHighResolutionCapable': True,
         'NSPrincipalClass': 'NSApplication',
         'LSApplicationCategoryType': 'public.app-category.developer-tools',
