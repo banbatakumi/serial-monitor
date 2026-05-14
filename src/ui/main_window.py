@@ -3,7 +3,7 @@ import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QLabel, QTabWidget,
-    QStatusBar, QMessageBox,
+    QStatusBar, QMessageBox, QSpinBox,
 )
 from PyQt6.QtCore import QTimer
 
@@ -14,6 +14,11 @@ from src.ui.console_widget import ConsoleWidget
 from src.ui.graph_widget import RealtimeGraphWidget
 from src.ui.analysis_widget import AnalysisWidget
 from src.ui.settings_dialog import SettingsDialog
+
+_BAUD_RATES = [
+    "9600", "19200", "38400", "57600",
+    "115200", "230400", "250000", "460800", "921600",
+]
 
 
 class MainWindow(QMainWindow):
@@ -28,13 +33,23 @@ class MainWindow(QMainWindow):
         self._config = ProtocolConfig()
         self._connected = False
 
+        # Buffers for rate-limited display updates
+        self._pending_lines: list[str] = []
+        self._pending_samples: list[tuple[float, list, list[str]]] = []
+
         self._build_ui()
         self._connect_signals()
 
+        # Port scan timer
         self._port_timer = QTimer()
         self._port_timer.timeout.connect(self._refresh_ports)
         self._port_timer.start(2000)
         self._refresh_ports()
+
+        # Display update timer
+        self._display_timer = QTimer()
+        self._display_timer.timeout.connect(self._flush_pending)
+        self._display_timer.start(self._interval_spin.value())
 
     # ------------------------------------------------------------------
     def _build_ui(self):
@@ -44,7 +59,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(6)
 
-        # Toolbar
+        # ---- Toolbar row 1: connection ----
         toolbar = QHBoxLayout()
 
         toolbar.addWidget(QLabel("ポート:"))
@@ -59,8 +74,7 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(QLabel("ボーレート:"))
         self._baud_combo = QComboBox()
-        for br in ["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"]:
-            self._baud_combo.addItem(br)
+        self._baud_combo.addItems(_BAUD_RATES)
         self._baud_combo.setCurrentText("115200")
         toolbar.addWidget(self._baud_combo)
 
@@ -70,11 +84,27 @@ class MainWindow(QMainWindow):
         self._conn_btn.clicked.connect(self._toggle_connection)
         toolbar.addWidget(self._conn_btn)
 
-        toolbar.addSpacing(20)
+        toolbar.addSpacing(16)
 
         proto_btn = QPushButton("プロトコル設定")
         proto_btn.clicked.connect(self._open_settings)
         toolbar.addWidget(proto_btn)
+
+        toolbar.addSpacing(16)
+
+        # Update interval
+        toolbar.addWidget(QLabel("更新周期:"))
+        self._interval_spin = QSpinBox()
+        self._interval_spin.setRange(10, 5000)
+        self._interval_spin.setValue(50)
+        self._interval_spin.setSuffix(" ms")
+        self._interval_spin.setToolTip(
+            "UIの更新間隔 (ms)\n"
+            "小さい値: リアルタイム性向上 / CPU負荷増\n"
+            "大きい値: 高速データでも安定表示 / CPU負荷減"
+        )
+        self._interval_spin.valueChanged.connect(self._on_interval_changed)
+        toolbar.addWidget(self._interval_spin)
 
         toolbar.addStretch()
 
@@ -84,7 +114,7 @@ class MainWindow(QMainWindow):
 
         root.addLayout(toolbar)
 
-        # Tabs
+        # ---- Tabs ----
         self._tabs = QTabWidget()
 
         self._console = ConsoleWidget()
@@ -137,6 +167,8 @@ class MainWindow(QMainWindow):
                 self._status_label.setText(f"接続中: {port} @ {baud}")
                 self._status_label.setStyleSheet("color: #81C784;")
                 self._parser.reset()
+                self._pending_lines.clear()
+                self._pending_samples.clear()
             else:
                 self._conn_btn.setChecked(False)
         else:
@@ -160,28 +192,47 @@ class MainWindow(QMainWindow):
                 self._graph.set_channels(names)
             self._store.reset()
             self._graph.clear()
+            self._pending_lines.clear()
+            self._pending_samples.clear()
 
     def _channel_names_from_config(self) -> list[str]:
         if self._config.mode == "binary":
             return [f.name for f in self._config.binary_fields if f.graph and f.name]
         return self._config.channels
 
+    def _on_interval_changed(self, ms: int):
+        self._display_timer.setInterval(ms)
+
     # ------------------------------------------------------------------
+    # Data reception (called from QThread via signal — safe to buffer here)
     def _on_raw_data(self, data: bytes):
         self._parser.feed(data)
 
     def _on_text_line(self, line: str):
-        self._console.append_line(line)
+        self._pending_lines.append(line)
 
     def _on_structured(self, timestamp: float, values: list):
         names = self._channel_names_from_config()
         if not names:
             names = [f"ch{i + 1}" for i in range(len(values))]
         names = (names + [f"ch{i + 1}" for i in range(len(names), len(values))])[:len(values)]
-
+        # Always write to store immediately (no data loss regardless of display rate)
         self._store.add_sample(timestamp, values, names)
-        self._graph.add_sample(timestamp, values, names)
+        self._pending_samples.append((timestamp, values, names))
 
+    # Flush buffers to UI at the configured display rate
+    def _flush_pending(self):
+        if self._pending_lines:
+            for line in self._pending_lines:
+                self._console.append_line(line)
+            self._pending_lines.clear()
+
+        if self._pending_samples:
+            for timestamp, values, names in self._pending_samples:
+                self._graph.add_sample(timestamp, values, names)
+            self._pending_samples.clear()
+
+    # ------------------------------------------------------------------
     def _on_serial_error(self, msg: str):
         self.statusBar().showMessage(f"シリアルエラー: {msg}", 5000)
         self._disconnect()
@@ -198,5 +249,6 @@ class MainWindow(QMainWindow):
             self._analysis.refresh()
 
     def closeEvent(self, event):
+        self._display_timer.stop()
         self._worker.disconnect()
         event.accept()
