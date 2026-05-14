@@ -1,5 +1,4 @@
 import csv
-import time
 from collections import deque
 
 import numpy as np
@@ -35,17 +34,15 @@ class DataStore:
     def __init__(self, maxlen: int = 100_000):
         self._maxlen = maxlen
         self._channels: dict[str, ChannelBuffer] = {}
-        self._start_time: float = time.time()
 
     def reset(self):
         self._channels.clear()
-        self._start_time = time.time()
 
     def add_sample(self, timestamp: float, values: list[float], channel_names: list[str]):
         for name, val in zip(channel_names, values):
             if name not in self._channels:
                 self._channels[name] = ChannelBuffer(name, self._maxlen)
-            self._channels[name].append(timestamp - self._start_time, val)
+            self._channels[name].append(timestamp, val)
 
     def channel_names(self) -> list[str]:
         return list(self._channels.keys())

@@ -172,6 +172,10 @@ class RealtimeGraphWidget(QWidget):
             self._follow_btn.setFixedWidth(100)
             self._plot.enableAutoRange(axis='y', enable=True)
             self._scroll_to_latest()
+        else:
+            self._follow_btn.setText("追従オフ — クリックで復帰")
+            self._follow_btn.setStyleSheet(_STYLE_DETACHED)
+            self._follow_btn.setFixedWidth(180)
 
     def _on_time_window_changed(self, val: float):
         self._time_window = val
