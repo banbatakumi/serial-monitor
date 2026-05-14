@@ -1,7 +1,7 @@
 # Serial Monitor — Claude 開発引き継ぎドキュメント
 
 > このファイルは次のセッションで Claude がスムーズに開発を再開できるよう作成した。
-> 最終更新: v1.1.2 (2026-05-14)
+> 最終更新: v1.1.3 (2026-05-14)
 
 ---
 
@@ -248,6 +248,7 @@ macOS 26 (Sequoia 以降) の **PAC (Pointer Authentication Code)** 検証によ
 | v1.1.0 | Windows 対応 (PyInstaller + Inno Setup)、GitHub Actions 自動ビルド |
 | v1.1.1 | グラフ: チャンネルごとのスケール倍率、X軸を0以上に制限 |
 | v1.1.2 | ラベル付きテキストモード追加 ("Key: value" を自動解析) |
+| v1.1.3 | グラフ: 時間ウィンドウ指定、追従ボタンをわかりやすく改善 |
 
 ---
 
