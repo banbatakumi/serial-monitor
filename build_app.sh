@@ -4,12 +4,12 @@ set -e
 VERSION=${1:-"1.0.0"}
 DIST_DIR="dist"
 APP_NAME="SerialMonitor"
-DMG_NAME="${APP_NAME}-${VERSION}-macOS.dmg"
+DMG_NAME="${APP_NAME}-${VERSION}-macOS-arm64.dmg"
 
 echo "Building ${APP_NAME} v${VERSION}..."
 
-# Build .app
-.venv/bin/pyinstaller serial_monitor.spec --noconfirm
+# Build .app (ARM64 native)
+arch -arm64 .venv/bin/pyinstaller serial_monitor.spec --noconfirm
 
 # Create DMG
 echo "Creating DMG..."
