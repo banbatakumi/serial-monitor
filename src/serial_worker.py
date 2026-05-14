@@ -15,7 +15,10 @@ class SerialWorker(QThread):
 
     @staticmethod
     def list_ports() -> list[str]:
-        return [p.device for p in serial.tools.list_ports.comports()]
+        ports = serial.tools.list_ports.comports()
+        # USB devices (VID is set) come first, then alphabetical
+        ports.sort(key=lambda p: (0 if p.vid is not None else 1, p.device))
+        return [p.device for p in ports]
 
     def connect(self, port: str, baud: int, bytesize: int = 8,
                 parity: str = 'N', stopbits: float = 1, timeout: float = 0.1) -> bool:

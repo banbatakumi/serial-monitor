@@ -32,6 +32,12 @@ class MainWindow(QMainWindow):
         self._store  = DataStore()
         self._config = ProtocolConfig()
         self._connected = False
+        self._reconnect_port = ""
+        self._reconnect_baud = 115200
+        self._reconnecting = False
+
+        self._reconnect_timer = QTimer()
+        self._reconnect_timer.timeout.connect(self._try_reconnect)
 
         # Buffers for rate-limited display updates
         self._pending_lines: list[str] = []
@@ -174,6 +180,8 @@ class MainWindow(QMainWindow):
                 return
             ok = self._worker.connect(port, baud)
             if ok:
+                self._reconnect_port = port
+                self._reconnect_baud = baud
                 self._connected = True
                 self._conn_btn.setText("切断")
                 self._status_label.setText(f"接続中: {port} @ {baud}")
@@ -184,6 +192,9 @@ class MainWindow(QMainWindow):
             else:
                 self._conn_btn.setChecked(False)
         else:
+            # User manually disconnected — disable auto-reconnect
+            self._reconnect_timer.stop()
+            self._reconnect_port = ""
             self._disconnect()
 
     def _disconnect(self):
@@ -193,6 +204,21 @@ class MainWindow(QMainWindow):
         self._conn_btn.setText("接続")
         self._status_label.setText("未接続")
         self._status_label.setStyleSheet("color: gray;")
+
+    def _try_reconnect(self):
+        self._reconnecting = True
+        ok = self._worker.connect(self._reconnect_port, self._reconnect_baud)
+        self._reconnecting = False
+        if ok:
+            self._reconnect_timer.stop()
+            self._connected = True
+            self._conn_btn.setChecked(True)
+            self._conn_btn.setText("切断")
+            self._status_label.setText(f"再接続: {self._reconnect_port} @ {self._reconnect_baud}")
+            self._status_label.setStyleSheet("color: #81C784;")
+            self._parser.reset()
+            self._pending_lines.clear()
+            self._pending_samples.clear()
 
     def _open_settings(self):
         dlg = SettingsDialog(self._config, self)
@@ -256,12 +282,25 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------
     def _on_serial_error(self, msg: str):
+        if self._reconnecting:
+            return
         self.statusBar().showMessage(f"シリアルエラー: {msg}", 5000)
-        self._disconnect()
+        self._on_disconnected()
 
     def _on_disconnected(self):
-        if self._connected:
-            self._disconnect()
+        if not self._connected:
+            return
+        self._connected = False
+        self._conn_btn.setChecked(False)
+        self._conn_btn.setText("接続")
+        self._worker.disconnect()
+        if self._reconnect_port:
+            self._status_label.setText(f"切断 — 再接続中... ({self._reconnect_port})")
+            self._status_label.setStyleSheet("color: #FFB74D;")
+            self._reconnect_timer.start(2000)
+        else:
+            self._status_label.setText("未接続")
+            self._status_label.setStyleSheet("color: gray;")
 
     def _on_send(self, text: str):
         self._worker.send((text + "\n").encode("utf-8"))
@@ -272,5 +311,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._display_timer.stop()
+        self._reconnect_timer.stop()
         self._worker.disconnect()
         event.accept()
