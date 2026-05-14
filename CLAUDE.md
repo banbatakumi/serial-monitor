@@ -1,7 +1,7 @@
 # Serial Monitor — Claude 開発引き継ぎドキュメント
 
 > このファイルは次のセッションで Claude がスムーズに開発を再開できるよう作成した。
-> 最終更新: v1.0.7 (2026-05-14)
+> 最終更新: v1.1.0 (2026-05-14)
 
 ---
 
@@ -147,6 +147,24 @@ arch -arm64 .venv/bin/python -c "from src.ui.main_window import MainWindow; prin
 
 ---
 
+## ビルド手順 (Windows — PyInstaller + Inno Setup)
+
+Windows ビルドは GitHub Actions が自動で行う。ローカルでテストしたい場合は Windows 環境で:
+
+```bat
+pip install PyQt6 pyserial pyqtgraph numpy pyinstaller
+pyinstaller build_windows.spec
+# Inno Setup がインストールされていれば:
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=1.0.7 installer.iss
+```
+
+- **`build_windows.spec`**: PyInstaller 設定 (Qt6 プラグイン・pyqtgraph を collect_all で収録)
+- **`installer.iss`**: Inno Setup スクリプト → `dist/SerialMonitor-X.X.X-Windows.exe` を生成
+- **アイコン**: CI が `icon.icns` → `icon.ico` に自動変換 (icnsutils + Pillow)
+- **注意**: `serial.tools.list_ports_posix` は除外、`list_ports_windows` を使用
+
+---
+
 ## ビルド手順 (py2app)
 
 ```bash
@@ -190,11 +208,30 @@ macOS 26 (Sequoia 以降) の **PAC (Pointer Authentication Code)** 検証によ
 
 ---
 
+## GitHub Actions による自動ビルド / リリース
+
+`.github/workflows/build.yml` が以下を自動化:
+
+| ジョブ | ランナー | 処理 |
+|--------|---------|------|
+| `prepare` | ubuntu-latest | バージョン抽出 + `icon.icns` → `icon.ico` 変換 |
+| `build-macos` | macos-14 (arm64) | py2app ビルド + DMG 作成 |
+| `build-windows` | windows-latest | PyInstaller + Inno Setup インストーラー作成 |
+| `release` | ubuntu-latest | **タグ push 時のみ** GitHub Release (draft) を作成 |
+
+**リリースの流れ:**
+1. `setup.py` の `CFBundleVersion` を上げる
+2. `git tag vX.X.X && git push origin vX.X.X` でタグを push
+3. Actions が自動ビルド → Draft Release を作成
+4. GitHub の Release ページでノートを編集して Publish
+
+---
+
 ## 配布について
 
-- `.dmg` をそのまま他の Mac (Apple Silicon) に配布可能
-- Intel Mac には対応していない (arm64 専用ビルド)
-- `gh release` で GitHub Releases に公開済み → ダウンロードリンクを共有
+- `.dmg`: macOS Apple Silicon 向け (Intel 非対応)
+- `.exe` インストーラー: Windows x64 向け (PyInstaller + Inno Setup)
+- どちらも GitHub Releases から配布
 
 ---
 
@@ -208,6 +245,7 @@ macOS 26 (Sequoia 以降) の **PAC (Pointer Authentication Code)** 検証によ
 | v1.0.4 | アプリアイコン追加、250000 baud 追加、更新周期スピナー追加 |
 | v1.0.6 | 設定ダイアログ UI 刷新 (プレーンテキスト設定を整理、エンディアン説明追加) |
 | v1.0.7 | ツールバー2行化 (幅~650px対応)、チャンネル色 ■ 表示、生データモード追加 |
+| v1.1.0 | Windows 対応 (PyInstaller + Inno Setup)、GitHub Actions 自動ビルド |
 
 ---
 
