@@ -71,8 +71,11 @@ jobs:
       - name: Create DMG
         run: |
           VERSION=${{ needs.prepare.outputs.version }}
+          mkdir -p dmg_staging
+          cp -r dist/SerialMonitor.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
           hdiutil create -volname "SerialMonitor" \
-            -srcfolder dist/SerialMonitor.app \
+            -srcfolder dmg_staging \
             -ov -format UDZO \
             "dist/SerialMonitor-${VERSION}-macOS.dmg"
 
