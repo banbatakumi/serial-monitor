@@ -1,7 +1,16 @@
+import re
 import struct
 import time
 from dataclasses import dataclass, field
 from PyQt6.QtCore import QObject, pyqtSignal
+
+# Matches patterns like  "Label: value"  "Label: mValue unit"  "Label: -1.23e4"
+_LABEL_RE = re.compile(
+    r'([A-Za-z_]\w*)'                          # label
+    r'\s*:\s*'                                  # colon
+    r'[^\d\-+.]*?'                             # optional non-numeric prefix (e.g. "m")
+    r'([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)'      # number
+)
 
 FIELD_TYPES: dict[str, tuple[str, int]] = {
     "uint8":   ("B", 1),
@@ -25,7 +34,7 @@ class BinaryField:
 
 @dataclass
 class ProtocolConfig:
-    mode: str = "plain"              # "plain" | "structured" | "binary"
+    mode: str = "plain"              # "plain" | "labeled" | "structured" | "binary"
     header: bytes = b""
     footer: bytes = b"\n"
     separator: str = ","
@@ -37,7 +46,7 @@ class ProtocolConfig:
 
 class ProtocolParser(QObject):
     text_line_received = pyqtSignal(str)
-    structured_received = pyqtSignal(float, list)   # (timestamp, [float, ...])
+    structured_received = pyqtSignal(float, list, list)  # (timestamp, values, names)
 
     def __init__(self, config: ProtocolConfig | None = None):
         super().__init__()
@@ -55,6 +64,8 @@ class ProtocolParser(QObject):
         self._buf += data
         if self._config.mode == "plain":
             self._parse_plain()
+        elif self._config.mode == "labeled":
+            self._parse_labeled()
         elif self._config.mode == "binary":
             self._parse_binary()
         else:
@@ -67,6 +78,19 @@ class ProtocolParser(QObject):
             text = line.rstrip(b"\r").decode("utf-8", errors="replace")
             if text:
                 self.text_line_received.emit(text)
+
+    def _parse_labeled(self):
+        while b"\n" in self._buf:
+            line, self._buf = self._buf.split(b"\n", 1)
+            text = line.rstrip(b"\r").decode("utf-8", errors="replace")
+            if not text:
+                continue
+            self.text_line_received.emit(text)
+            matches = _LABEL_RE.findall(text)
+            if matches:
+                names  = [m[0] for m in matches]
+                values = [float(m[1]) for m in matches]
+                self.structured_received.emit(time.time(), values, names)
 
     def _parse_text_structured(self):
         cfg = self._config
@@ -94,7 +118,7 @@ class ProtocolParser(QObject):
 
             values = self._extract_csv_values(text, cfg.separator)
             if values:
-                self.structured_received.emit(time.time(), values)
+                self.structured_received.emit(time.time(), values, [])
 
     def _parse_binary(self):
         cfg = self._config
@@ -140,7 +164,7 @@ class ProtocolParser(QObject):
             values, names, console_parts = self._decode_binary_payload(payload, cfg.binary_fields)
             self.text_line_received.emit("  ".join(console_parts))
             if values:
-                self.structured_received.emit(time.time(), values)
+                self.structured_received.emit(time.time(), values, [])
 
     # ------------------------------------------------------------------
     @staticmethod

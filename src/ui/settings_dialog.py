@@ -23,12 +23,13 @@ class SettingsDialog(QDialog):
         mode_group = QGroupBox("受信モード")
         mode_layout = QVBoxLayout(mode_group)
 
-        self._rb_plain  = QRadioButton("プレーンテキスト  —  printf / Serial.println をそのまま表示")
-        self._rb_csv    = QRadioButton("CSV 数値データ  —  カンマ区切り数値をグラフ表示 (例: 1.57,10.5,0.5)")
-        self._rb_binary = QRadioButton("バイナリ  —  ヘッダ・フッタ付きバイナリパケット")
+        self._rb_plain   = QRadioButton("プレーンテキスト  —  printf / Serial.println をそのまま表示")
+        self._rb_labeled = QRadioButton("ラベル付きテキスト  —  \"Key: value\" 形式を自動認識してグラフ表示")
+        self._rb_csv     = QRadioButton("CSV 数値データ  —  カンマ区切り数値をグラフ表示 (例: 1.57,10.5,0.5)")
+        self._rb_binary  = QRadioButton("バイナリ  —  ヘッダ・フッタ付きバイナリパケット")
 
         self._mode_bg = QButtonGroup()
-        for rb in (self._rb_plain, self._rb_csv, self._rb_binary):
+        for rb in (self._rb_plain, self._rb_labeled, self._rb_csv, self._rb_binary):
             self._mode_bg.addButton(rb)
             mode_layout.addWidget(rb)
         layout.addWidget(mode_group)
@@ -49,7 +50,23 @@ class SettingsDialog(QDialog):
         plain_layout.addStretch()
         self._stack.addWidget(plain_pane)
 
-        # ── Pane 1: CSV ──
+        # ── Pane 1: labeled ──
+        labeled_pane = QWidget()
+        labeled_layout = QVBoxLayout(labeled_pane)
+        labeled_layout.setContentsMargins(0, 0, 0, 0)
+        labeled_label = QLabel(
+            "設定不要です。受信行から \"ラベル: 値\" のパターンを自動検出し、グラフ表示・CSV出力します。\n\n"
+            "対応フォーマット例:\n"
+            "  Theta: 123.45 deg, Speed: 678.90 rpm, Volt: 12.34 V\n"
+            "  Count1: m123, Count2: 246\n"
+            "  X: 1.0 Y: -2.5 Z: 0.3"
+        )
+        labeled_label.setStyleSheet("color: gray; padding: 8px;")
+        labeled_layout.addWidget(labeled_label)
+        labeled_layout.addStretch()
+        self._stack.addWidget(labeled_pane)
+
+        # ── Pane 2: CSV ──
         csv_pane = QGroupBox("CSV 数値データ 設定")
         csv_form = QFormLayout(csv_pane)
 
@@ -152,7 +169,7 @@ class SettingsDialog(QDialog):
 
         # Populate and wire
         self._load_config(cfg)
-        for rb in (self._rb_plain, self._rb_csv, self._rb_binary):
+        for rb in (self._rb_plain, self._rb_labeled, self._rb_csv, self._rb_binary):
             rb.toggled.connect(self._on_mode_changed)
 
     # ------------------------------------------------------------------
@@ -161,6 +178,8 @@ class SettingsDialog(QDialog):
             self._rb_binary.setChecked(True)
         elif cfg.mode == "structured":
             self._rb_csv.setChecked(True)
+        elif cfg.mode == "labeled":
+            self._rb_labeled.setChecked(True)
         else:
             self._rb_plain.setChecked(True)
 
@@ -199,10 +218,12 @@ class SettingsDialog(QDialog):
     def _on_mode_changed(self):
         if self._rb_plain.isChecked():
             self._stack.setCurrentIndex(0)
-        elif self._rb_csv.isChecked():
+        elif self._rb_labeled.isChecked():
             self._stack.setCurrentIndex(1)
-        else:
+        elif self._rb_csv.isChecked():
             self._stack.setCurrentIndex(2)
+        else:
+            self._stack.setCurrentIndex(3)
 
     # --- CSV channels ---
     def _add_channel(self, name: str = ""):
@@ -254,6 +275,8 @@ class SettingsDialog(QDialog):
             mode = "binary"
         elif self._rb_csv.isChecked():
             mode = "structured"
+        elif self._rb_labeled.isChecked():
+            mode = "labeled"
         else:
             mode = "plain"
 

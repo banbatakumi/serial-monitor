@@ -230,8 +230,9 @@ class MainWindow(QMainWindow):
         else:
             self._pending_lines.append(line)
 
-    def _on_structured(self, timestamp: float, values: list):
-        names = self._channel_names_from_config()
+    def _on_structured(self, timestamp: float, values: list, names: list):
+        if not names:
+            names = self._channel_names_from_config()
         if not names:
             names = [f"ch{i + 1}" for i in range(len(values))]
         names = (names + [f"ch{i + 1}" for i in range(len(names), len(values))])[:len(values)]
