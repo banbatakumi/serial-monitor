@@ -3,7 +3,7 @@ import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QLabel, QTabWidget,
-    QStatusBar, QMessageBox, QSpinBox,
+    QStatusBar, QMessageBox, QSpinBox, QCheckBox,
 )
 from PyQt6.QtCore import QTimer
 
@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Serial Monitor")
-        self.resize(1100, 700)
+        self.resize(820, 600)
 
         self._worker = SerialWorker()
         self._parser = ProtocolParser()
@@ -60,40 +60,48 @@ class MainWindow(QMainWindow):
         root.setSpacing(6)
 
         # ---- Toolbar row 1: connection ----
-        toolbar = QHBoxLayout()
+        row1 = QHBoxLayout()
 
-        toolbar.addWidget(QLabel("ポート:"))
+        row1.addWidget(QLabel("ポート:"))
         self._port_combo = QComboBox()
-        self._port_combo.setMinimumWidth(140)
-        toolbar.addWidget(self._port_combo)
+        self._port_combo.setMinimumWidth(100)
+        row1.addWidget(self._port_combo)
 
         refresh_btn = QPushButton("↻")
-        refresh_btn.setFixedWidth(30)
+        refresh_btn.setFixedWidth(28)
         refresh_btn.clicked.connect(self._refresh_ports)
-        toolbar.addWidget(refresh_btn)
+        row1.addWidget(refresh_btn)
 
-        toolbar.addWidget(QLabel("ボーレート:"))
+        row1.addWidget(QLabel("ボーレート:"))
         self._baud_combo = QComboBox()
         self._baud_combo.addItems(_BAUD_RATES)
         self._baud_combo.setCurrentText("115200")
-        toolbar.addWidget(self._baud_combo)
+        row1.addWidget(self._baud_combo)
 
         self._conn_btn = QPushButton("接続")
         self._conn_btn.setCheckable(True)
-        self._conn_btn.setMinimumWidth(80)
+        self._conn_btn.setMinimumWidth(70)
         self._conn_btn.clicked.connect(self._toggle_connection)
-        toolbar.addWidget(self._conn_btn)
+        row1.addWidget(self._conn_btn)
 
-        toolbar.addSpacing(16)
+        row1.addSpacing(8)
 
         proto_btn = QPushButton("プロトコル設定")
         proto_btn.clicked.connect(self._open_settings)
-        toolbar.addWidget(proto_btn)
+        row1.addWidget(proto_btn)
 
-        toolbar.addSpacing(16)
+        row1.addStretch()
 
-        # Update interval
-        toolbar.addWidget(QLabel("更新周期:"))
+        self._status_label = QLabel("未接続")
+        self._status_label.setStyleSheet("color: gray;")
+        row1.addWidget(self._status_label)
+
+        root.addLayout(row1)
+
+        # ---- Toolbar row 2: display settings ----
+        row2 = QHBoxLayout()
+
+        row2.addWidget(QLabel("更新周期:"))
         self._interval_spin = QSpinBox()
         self._interval_spin.setRange(10, 5000)
         self._interval_spin.setValue(50)
@@ -104,15 +112,19 @@ class MainWindow(QMainWindow):
             "大きい値: 高速データでも安定表示 / CPU負荷減"
         )
         self._interval_spin.valueChanged.connect(self._on_interval_changed)
-        toolbar.addWidget(self._interval_spin)
+        row2.addWidget(self._interval_spin)
 
-        toolbar.addStretch()
+        self._raw_cb = QCheckBox("生データ")
+        self._raw_cb.setToolTip(
+            "受信のたびに即時描画します。\n"
+            "高レートのデータでは CPU 負荷が増えることがあります。"
+        )
+        self._raw_cb.stateChanged.connect(self._on_raw_mode_changed)
+        row2.addWidget(self._raw_cb)
 
-        self._status_label = QLabel("未接続")
-        self._status_label.setStyleSheet("color: gray;")
-        toolbar.addWidget(self._status_label)
+        row2.addStretch()
 
-        root.addLayout(toolbar)
+        root.addLayout(row2)
 
         # ---- Tabs ----
         self._tabs = QTabWidget()
@@ -203,22 +215,31 @@ class MainWindow(QMainWindow):
     def _on_interval_changed(self, ms: int):
         self._display_timer.setInterval(ms)
 
+    def _on_raw_mode_changed(self, state: int):
+        raw = state == 2
+        self._interval_spin.setEnabled(not raw)
+
     # ------------------------------------------------------------------
     # Data reception (called from QThread via signal — safe to buffer here)
     def _on_raw_data(self, data: bytes):
         self._parser.feed(data)
 
     def _on_text_line(self, line: str):
-        self._pending_lines.append(line)
+        if self._raw_cb.isChecked():
+            self._console.append_line(line)
+        else:
+            self._pending_lines.append(line)
 
     def _on_structured(self, timestamp: float, values: list):
         names = self._channel_names_from_config()
         if not names:
             names = [f"ch{i + 1}" for i in range(len(values))]
         names = (names + [f"ch{i + 1}" for i in range(len(names), len(values))])[:len(values)]
-        # Always write to store immediately (no data loss regardless of display rate)
         self._store.add_sample(timestamp, values, names)
-        self._pending_samples.append((timestamp, values, names))
+        if self._raw_cb.isChecked():
+            self._graph.add_sample(timestamp, values, names)
+        else:
+            self._pending_samples.append((timestamp, values, names))
 
     # Flush buffers to UI at the configured display rate
     def _flush_pending(self):

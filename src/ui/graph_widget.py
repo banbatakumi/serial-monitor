@@ -75,9 +75,13 @@ class RealtimeGraphWidget(QWidget):
             buf_ts: deque[float] = deque(maxlen=100_000)
             buf_val: deque[float] = deque(maxlen=100_000)
 
-            cb = QCheckBox(name)
+            cb = QCheckBox(f"■ {name}")
             cb.setChecked(True)
-            cb.setStyleSheet(f"color: {color};")
+            cb.setStyleSheet(
+                f"color: {color}; font-weight: bold;"
+                f"QCheckBox::indicator {{ border: 2px solid {color}; }}"
+                f"QCheckBox::indicator:checked {{ background-color: {color}; }}"
+            )
             cb.stateChanged.connect(lambda state, c=curve: c.setVisible(state == 2))
             self._vis_row.insertWidget(self._vis_row.count() - 1, cb)
 
