@@ -3,10 +3,9 @@ import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QLabel, QTabWidget,
-    QStatusBar, QMessageBox, QSpinBox,
+    QStatusBar, QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QTimer
 
 from src.serial_worker import SerialWorker
 from src.protocol_parser import ProtocolParser, ProtocolConfig
@@ -25,14 +24,13 @@ class MainWindow(QMainWindow):
 
         self._worker = SerialWorker()
         self._parser = ProtocolParser()
-        self._store = DataStore()
+        self._store  = DataStore()
         self._config = ProtocolConfig()
         self._connected = False
 
         self._build_ui()
         self._connect_signals()
 
-        # Port refresh timer
         self._port_timer = QTimer()
         self._port_timer.timeout.connect(self._refresh_ports)
         self._port_timer.start(2000)
@@ -46,7 +44,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(6)
 
-        # --- Toolbar ---
+        # Toolbar
         toolbar = QHBoxLayout()
 
         toolbar.addWidget(QLabel("ポート:"))
@@ -86,7 +84,7 @@ class MainWindow(QMainWindow):
 
         root.addLayout(toolbar)
 
-        # --- Tabs ---
+        # Tabs
         self._tabs = QTabWidget()
 
         self._console = ConsoleWidget()
@@ -98,10 +96,8 @@ class MainWindow(QMainWindow):
         self._analysis = AnalysisWidget(self._store)
         self._tabs.addTab(self._analysis, "解析")
 
-        root.addWidget(self._tabs)
-
-        # Switch to analysis tab → auto refresh
         self._tabs.currentChanged.connect(self._on_tab_changed)
+        root.addWidget(self._tabs)
 
         self.setStatusBar(QStatusBar())
 
@@ -159,10 +155,16 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             self._config = dlg.get_config()
             self._parser.set_config(self._config)
-            if self._config.channels:
-                self._graph.set_channels(self._config.channels)
+            names = self._channel_names_from_config()
+            if names:
+                self._graph.set_channels(names)
             self._store.reset()
             self._graph.clear()
+
+    def _channel_names_from_config(self) -> list[str]:
+        if self._config.mode == "binary":
+            return [f.name for f in self._config.binary_fields if f.graph and f.name]
+        return self._config.channels
 
     # ------------------------------------------------------------------
     def _on_raw_data(self, data: bytes):
@@ -172,11 +174,10 @@ class MainWindow(QMainWindow):
         self._console.append_line(line)
 
     def _on_structured(self, timestamp: float, values: list):
-        names = self._config.channels
+        names = self._channel_names_from_config()
         if not names:
-            names = [f"ch{i+1}" for i in range(len(values))]
-        # Pad or trim to match values
-        names = names[:len(values)] + [f"ch{i+1}" for i in range(len(names), len(values))]
+            names = [f"ch{i + 1}" for i in range(len(values))]
+        names = (names + [f"ch{i + 1}" for i in range(len(names), len(values))])[:len(values)]
 
         self._store.add_sample(timestamp, values, names)
         self._graph.add_sample(timestamp, values, names)
