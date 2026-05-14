@@ -4,7 +4,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QSpinBox, QCheckBox, QDoubleSpinBox,
+    QPushButton, QDoubleSpinBox, QCheckBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -13,11 +13,14 @@ COLORS = [
     "#CE93D8", "#80DEEA", "#FFCC02", "#FF7043",
 ]
 
+_STYLE_FOLLOWING = "QPushButton { background-color: #81C784; color: #1a1a1a; font-weight: bold; }"
+_STYLE_DETACHED  = "QPushButton { background-color: #FF7043; color: white;   font-weight: bold; }"
+
 
 class RealtimeGraphWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._window = 200          # samples to show
+        self._time_window = 10.0       # seconds to display
         self._channels: dict[str, dict] = {}
         self._build_ui()
 
@@ -27,12 +30,25 @@ class RealtimeGraphWidget(QWidget):
 
         # Controls
         ctrl = QHBoxLayout()
-        ctrl.addWidget(QLabel("表示サンプル数:"))
-        self._win_spin = QSpinBox()
-        self._win_spin.setRange(10, 10000)
-        self._win_spin.setValue(self._window)
-        self._win_spin.valueChanged.connect(self._on_window_changed)
-        ctrl.addWidget(self._win_spin)
+
+        ctrl.addWidget(QLabel("表示時間:"))
+        self._time_spin = QDoubleSpinBox()
+        self._time_spin.setRange(0.5, 3600)
+        self._time_spin.setValue(self._time_window)
+        self._time_spin.setSuffix(" 秒")
+        self._time_spin.setDecimals(1)
+        self._time_spin.setSingleStep(1.0)
+        self._time_spin.setFixedWidth(90)
+        self._time_spin.valueChanged.connect(self._on_time_window_changed)
+        ctrl.addWidget(self._time_spin)
+
+        self._follow_btn = QPushButton("● 追従中")
+        self._follow_btn.setCheckable(True)
+        self._follow_btn.setChecked(True)
+        self._follow_btn.setFixedWidth(100)
+        self._follow_btn.setStyleSheet(_STYLE_FOLLOWING)
+        self._follow_btn.clicked.connect(self._on_follow_clicked)
+        ctrl.addWidget(self._follow_btn)
 
         self._pause_btn = QPushButton("一時停止")
         self._pause_btn.setCheckable(True)
@@ -53,14 +69,19 @@ class RealtimeGraphWidget(QWidget):
         self._plot.setLabel("bottom", "経過時間 (s)")
         self._plot.setLabel("left", "値")
         self._plot.setLimits(xMin=0)
+        self._plot.enableAutoRange(axis='x', enable=False)
         layout.addWidget(self._plot)
 
-        # Channel visibility checkboxes row
+        # Detect manual zoom/pan → disable auto-follow
+        self._plot.getViewBox().sigRangeChangedManually.connect(self._on_manual_range_change)
+
+        # Channel visibility + scale row
         self._vis_row = QHBoxLayout()
         self._vis_row.addWidget(QLabel("表示:"))
         self._vis_row.addStretch()
         layout.addLayout(self._vis_row)
 
+    # ------------------------------------------------------------------
     def set_channels(self, names: list[str]):
         for ch in self._channels.values():
             self._plot.removeItem(ch["curve"])
@@ -119,6 +140,7 @@ class RealtimeGraphWidget(QWidget):
         if not self._channels:
             self.set_channels(channel_names)
 
+        window = self._time_window
         for name, val in zip(channel_names, values):
             if name not in self._channels:
                 self.set_channels(list(self._channels.keys()) + [name])
@@ -126,30 +148,60 @@ class RealtimeGraphWidget(QWidget):
             ch["buf_ts"].append(timestamp)
             ch["buf_val"].append(val)
 
-            ts_arr = np.array(ch["buf_ts"])
+            ts_arr  = np.array(ch["buf_ts"])
             val_arr = np.array(ch["buf_val"])
-            if len(ts_arr) > self._window:
-                ts_arr = ts_arr[-self._window:]
-                val_arr = val_arr[-self._window:]
-            ch["curve"].setData(ts_arr, val_arr * ch["scale"])
+            mask = ts_arr >= (timestamp - window)
+            ch["curve"].setData(ts_arr[mask], val_arr[mask] * ch["scale"])
+
+        if self._follow_btn.isChecked():
+            self._plot.setXRange(max(0.0, timestamp - window), timestamp, padding=0)
+
+    # ------------------------------------------------------------------
+    def _on_manual_range_change(self, axes):
+        # axes = (x_changed, y_changed); disable follow when X is panned/zoomed
+        if axes[0] and self._follow_btn.isChecked():
+            self._follow_btn.setChecked(False)
+            self._follow_btn.setText("追従オフ — クリックで復帰")
+            self._follow_btn.setStyleSheet(_STYLE_DETACHED)
+            self._follow_btn.setFixedWidth(180)
+
+    def _on_follow_clicked(self, checked: bool):
+        if checked:
+            self._follow_btn.setText("● 追従中")
+            self._follow_btn.setStyleSheet(_STYLE_FOLLOWING)
+            self._follow_btn.setFixedWidth(100)
+            self._plot.enableAutoRange(axis='y', enable=True)
+            self._scroll_to_latest()
+
+    def _on_time_window_changed(self, val: float):
+        self._time_window = val
+        if self._follow_btn.isChecked():
+            self._scroll_to_latest()
 
     def _on_scale_changed(self, name: str, val: float):
         ch = self._channels.get(name)
         if not ch:
             return
         ch["scale"] = val
-        ts_arr = np.array(ch["buf_ts"])
+        ts_arr  = np.array(ch["buf_ts"])
         val_arr = np.array(ch["buf_val"])
-        if len(ts_arr) > self._window:
-            ts_arr = ts_arr[-self._window:]
-            val_arr = val_arr[-self._window:]
-        ch["curve"].setData(ts_arr, val_arr * val)
+        if len(ts_arr) == 0:
+            return
+        mask = ts_arr >= (ts_arr[-1] - self._time_window)
+        ch["curve"].setData(ts_arr[mask], val_arr[mask] * val)
+
+    def _scroll_to_latest(self):
+        latest = None
+        for ch in self._channels.values():
+            if ch["buf_ts"]:
+                t = ch["buf_ts"][-1]
+                if latest is None or t > latest:
+                    latest = t
+        if latest is not None:
+            self._plot.setXRange(max(0.0, latest - self._time_window), latest, padding=0)
 
     def clear(self):
         for ch in self._channels.values():
             ch["buf_ts"].clear()
             ch["buf_val"].clear()
             ch["curve"].setData([], [])
-
-    def _on_window_changed(self, val: int):
-        self._window = val
