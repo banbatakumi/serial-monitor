@@ -36,7 +36,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rthook_bundle_init.py'],
     excludes=['tkinter', 'matplotlib'],
     noarchive=False,
 )
@@ -77,12 +77,12 @@ app = BUNDLE(
     name='SerialMonitor.app',
     icon=None,
     bundle_identifier='com.banbatakumi.serialmonitor',
-    version='1.0.0',
+    version='1.0.2',
     info_plist={
         'NSPrincipalClass': 'NSApplication',
         'NSHighResolutionCapable': True,
         'CFBundleDisplayName': 'Serial Monitor',
-        'CFBundleShortVersionString': '1.0.0',
+        'CFBundleShortVersionString': '1.0.2',
         'LSApplicationCategoryType': 'public.app-category.developer-tools',
         'NSBluetoothAlwaysUsageDescription': '',
     },
