@@ -4,7 +4,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QSpinBox, QCheckBox,
+    QPushButton, QSpinBox, QCheckBox, QDoubleSpinBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -52,6 +52,7 @@ class RealtimeGraphWidget(QWidget):
         self._plot.addLegend()
         self._plot.setLabel("bottom", "経過時間 (s)")
         self._plot.setLabel("left", "値")
+        self._plot.setLimits(xMin=0)
         layout.addWidget(self._plot)
 
         # Channel visibility checkboxes row
@@ -61,11 +62,13 @@ class RealtimeGraphWidget(QWidget):
         layout.addLayout(self._vis_row)
 
     def set_channels(self, names: list[str]):
-        # Remove old curves
         for ch in self._channels.values():
             self._plot.removeItem(ch["curve"])
-            if ch.get("checkbox"):
-                ch["checkbox"].setParent(None)
+            for key in ("checkbox", "scale_label", "scale_spin"):
+                w = ch.get(key)
+                if w:
+                    self._vis_row.removeWidget(w)
+                    w.setParent(None)
         self._channels.clear()
 
         for i, name in enumerate(names):
@@ -83,13 +86,31 @@ class RealtimeGraphWidget(QWidget):
                 f"QCheckBox::indicator:checked {{ background-color: {color}; }}"
             )
             cb.stateChanged.connect(lambda state, c=curve: c.setVisible(state == 2))
-            self._vis_row.insertWidget(self._vis_row.count() - 1, cb)
+
+            scale_label = QLabel("×")
+            scale_label.setStyleSheet(f"color: {color};")
+
+            scale_spin = QDoubleSpinBox()
+            scale_spin.setRange(-1e6, 1e6)
+            scale_spin.setValue(1.0)
+            scale_spin.setDecimals(3)
+            scale_spin.setSingleStep(0.1)
+            scale_spin.setFixedWidth(80)
+            scale_spin.valueChanged.connect(lambda val, n=name: self._on_scale_changed(n, val))
+
+            pos = self._vis_row.count() - 1
+            self._vis_row.insertWidget(pos,     cb)
+            self._vis_row.insertWidget(pos + 1, scale_label)
+            self._vis_row.insertWidget(pos + 2, scale_spin)
 
             self._channels[name] = {
                 "curve": curve,
                 "buf_ts": buf_ts,
                 "buf_val": buf_val,
                 "checkbox": cb,
+                "scale_label": scale_label,
+                "scale_spin": scale_spin,
+                "scale": 1.0,
             }
 
     def add_sample(self, timestamp: float, values: list[float], channel_names: list[str]):
@@ -110,7 +131,19 @@ class RealtimeGraphWidget(QWidget):
             if len(ts_arr) > self._window:
                 ts_arr = ts_arr[-self._window:]
                 val_arr = val_arr[-self._window:]
-            ch["curve"].setData(ts_arr, val_arr)
+            ch["curve"].setData(ts_arr, val_arr * ch["scale"])
+
+    def _on_scale_changed(self, name: str, val: float):
+        ch = self._channels.get(name)
+        if not ch:
+            return
+        ch["scale"] = val
+        ts_arr = np.array(ch["buf_ts"])
+        val_arr = np.array(ch["buf_val"])
+        if len(ts_arr) > self._window:
+            ts_arr = ts_arr[-self._window:]
+            val_arr = val_arr[-self._window:]
+        ch["curve"].setData(ts_arr, val_arr * val)
 
     def clear(self):
         for ch in self._channels.values():
