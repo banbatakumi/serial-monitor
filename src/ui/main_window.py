@@ -158,6 +158,7 @@ class MainWindow(QMainWindow):
         self._parser.structured_received.connect(self._on_structured)
 
         self._console.send_requested.connect(self._on_send)
+        self._analysis.data_clear_requested.connect(self._on_data_clear)
 
     # ------------------------------------------------------------------
     def _refresh_ports(self):
@@ -186,6 +187,8 @@ class MainWindow(QMainWindow):
                 self._conn_btn.setText("切断")
                 self._status_label.setText(f"接続中: {port} @ {baud}")
                 self._status_label.setStyleSheet("color: #81C784;")
+                self._store.reset()
+                self._graph.clear()
                 self._parser.reset()
                 self._pending_lines.clear()
                 self._pending_samples.clear()
@@ -216,7 +219,7 @@ class MainWindow(QMainWindow):
             self._conn_btn.setText("切断")
             self._status_label.setText(f"再接続: {self._reconnect_port} @ {self._reconnect_baud}")
             self._status_label.setStyleSheet("color: #81C784;")
-            self._parser.reset()
+            self._parser.reset_buffer()
             self._pending_lines.clear()
             self._pending_samples.clear()
 
@@ -279,6 +282,14 @@ class MainWindow(QMainWindow):
             for timestamp, values, names in self._pending_samples:
                 self._graph.add_sample(timestamp, values, names)
             self._pending_samples.clear()
+
+    def _on_data_clear(self):
+        self._store.reset()
+        self._graph.clear()
+        self._parser.reset()
+        self._pending_lines.clear()
+        self._pending_samples.clear()
+        self._analysis.refresh()
 
     # ------------------------------------------------------------------
     def _on_serial_error(self, msg: str):

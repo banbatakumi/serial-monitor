@@ -62,6 +62,10 @@ class ProtocolParser(QObject):
         self._buf = b""
         self._t0 = None
 
+    def reset_buffer(self):
+        """Reset receive buffer only; preserves timestamp origin for seamless reconnect."""
+        self._buf = b""
+
     def _now(self) -> float:
         t = time.time()
         if self._t0 is None:

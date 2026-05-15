@@ -5,12 +5,14 @@ from PyQt6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QLabel, QComboBox, QFileDialog, QCheckBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from src.data_store import DataStore
 from src.ui.graph_widget import COLORS
 
 
 class AnalysisWidget(QWidget):
+    data_clear_requested = pyqtSignal()
+
     def __init__(self, store: DataStore, parent=None):
         super().__init__(parent)
         self._store = store
@@ -29,6 +31,12 @@ class AnalysisWidget(QWidget):
         export_btn = QPushButton("CSV エクスポート")
         export_btn.clicked.connect(self._export_csv)
         ctrl.addWidget(export_btn)
+
+        clear_btn = QPushButton("データクリア")
+        clear_btn.setStyleSheet("QPushButton { color: #FF7043; font-weight: bold; }")
+        clear_btn.clicked.connect(self.data_clear_requested)
+        ctrl.addWidget(clear_btn)
+
         ctrl.addStretch()
         layout.addLayout(ctrl)
 
@@ -42,6 +50,7 @@ class AnalysisWidget(QWidget):
         self._plot.addLegend()
         self._plot.setLabel("bottom", "経過時間 (s)")
         self._plot.setLabel("left", "値")
+        self._plot.setLimits(xMin=0)
         splitter.addWidget(self._plot)
 
         # Statistics table
