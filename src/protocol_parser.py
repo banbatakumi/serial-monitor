@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 from PyQt6.QtCore import QObject, pyqtSignal
 
 # Matches patterns like  "Label: value"  "Label: mValue unit"  "Label: -1.23e4"
+#                    and "key=value"  "speed=3.14 m/s"  "is_slipping=0"
 _LABEL_RE = re.compile(
     r'([A-Za-z_]\w*)'                          # label
-    r'\s*:\s*'                                  # colon
+    r'\s*[=:]\s*'                              # colon or equals
     r'[^\d\-+.]*?'                             # optional non-numeric prefix (e.g. "m")
     r'([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)'      # number
 )
