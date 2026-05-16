@@ -268,6 +268,7 @@ class MainWindow(QMainWindow):
         self._store.add_sample(timestamp, values, names)
         if self._raw_cb.isChecked():
             self._graph.add_sample(timestamp, values, names)
+            self._graph.refresh_curves()
         else:
             self._pending_samples.append((timestamp, values, names))
 
@@ -282,6 +283,7 @@ class MainWindow(QMainWindow):
             for timestamp, values, names in self._pending_samples:
                 self._graph.add_sample(timestamp, values, names)
             self._pending_samples.clear()
+            self._graph.refresh_curves()  # 1フラッシュにつき1回だけ描画
 
     def _on_data_clear(self):
         self._store.reset()

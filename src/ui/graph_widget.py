@@ -22,6 +22,7 @@ class RealtimeGraphWidget(QWidget):
         super().__init__(parent)
         self._time_window = 10.0       # seconds to display
         self._channels: dict[str, dict] = {}
+        self._latest_ts: float | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -135,12 +136,12 @@ class RealtimeGraphWidget(QWidget):
             }
 
     def add_sample(self, timestamp: float, values: list[float], channel_names: list[str]):
+        """Append data to buffers only. Call refresh_curves() to redraw."""
         if self._pause_btn.isChecked():
             return
         if not self._channels:
             self.set_channels(channel_names)
 
-        window = self._time_window
         for name, val in zip(channel_names, values):
             if name not in self._channels:
                 self.set_channels(list(self._channels.keys()) + [name])
@@ -148,13 +149,25 @@ class RealtimeGraphWidget(QWidget):
             ch["buf_ts"].append(timestamp)
             ch["buf_val"].append(val)
 
+        self._latest_ts = timestamp
+
+    def refresh_curves(self):
+        """Redraw all curves. Call once per display tick, not once per sample."""
+        if not self._channels or self._latest_ts is None:
+            return
+        timestamp = self._latest_ts
+        t_start = timestamp - self._time_window
+
+        for ch in self._channels.values():
+            if not ch["buf_ts"]:
+                continue
             ts_arr  = np.array(ch["buf_ts"])
             val_arr = np.array(ch["buf_val"])
-            mask = ts_arr >= (timestamp - window)
-            ch["curve"].setData(ts_arr[mask], val_arr[mask] * ch["scale"])
+            idx = np.searchsorted(ts_arr, t_start)
+            ch["curve"].setData(ts_arr[idx:], val_arr[idx:] * ch["scale"])
 
         if self._follow_btn.isChecked():
-            self._plot.setXRange(max(0.0, timestamp - window), timestamp, padding=0)
+            self._plot.setXRange(max(0.0, timestamp - self._time_window), timestamp, padding=0)
 
     # ------------------------------------------------------------------
     def _on_manual_range_change(self, axes):
@@ -187,22 +200,13 @@ class RealtimeGraphWidget(QWidget):
         if not ch:
             return
         ch["scale"] = val
-        ts_arr  = np.array(ch["buf_ts"])
-        val_arr = np.array(ch["buf_val"])
-        if len(ts_arr) == 0:
-            return
-        mask = ts_arr >= (ts_arr[-1] - self._time_window)
-        ch["curve"].setData(ts_arr[mask], val_arr[mask] * val)
+        self.refresh_curves()
 
     def _scroll_to_latest(self):
-        latest = None
-        for ch in self._channels.values():
-            if ch["buf_ts"]:
-                t = ch["buf_ts"][-1]
-                if latest is None or t > latest:
-                    latest = t
-        if latest is not None:
-            self._plot.setXRange(max(0.0, latest - self._time_window), latest, padding=0)
+        if self._latest_ts is not None:
+            self._plot.setXRange(
+                max(0.0, self._latest_ts - self._time_window), self._latest_ts, padding=0
+            )
 
     def clear(self):
         for ch in self._channels.values():
