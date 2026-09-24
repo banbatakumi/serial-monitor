@@ -1,3 +1,4 @@
+import json
 import time
 
 from PyQt6.QtWidgets import (
@@ -5,7 +6,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QPushButton, QLabel, QTabWidget,
     QStatusBar, QMessageBox, QSpinBox, QCheckBox,
 )
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, QSettings
 
 from src.serial_worker import SerialWorker
 from src.protocol_parser import ProtocolParser, ProtocolConfig
@@ -19,6 +20,16 @@ _BAUD_RATES = [
     "9600", "19200", "38400", "57600",
     "115200", "230400", "250000", "460800", "921600",
 ]
+
+
+def _format_bytes(n: float) -> str:
+    if n < 1024:
+        return f"{n:.0f} B"
+    for unit in ("KB", "MB"):
+        n /= 1024
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+    return f"{n / 1024:.1f} GB"
 
 
 class MainWindow(QMainWindow):
@@ -43,8 +54,17 @@ class MainWindow(QMainWindow):
         self._pending_lines: list[str] = []
         self._pending_samples: list[tuple[float, list, list[str]]] = []
 
+        # Receive statistics
+        self._rx_total = 0
+        self._rx_window = 0
+        self._rx_window_t = time.monotonic()
+
+        self._settings = QSettings()
+        self._last_port = ""
+
         self._build_ui()
         self._connect_signals()
+        self._load_settings()
 
         # Port scan timer
         self._port_timer = QTimer()
@@ -56,6 +76,11 @@ class MainWindow(QMainWindow):
         self._display_timer = QTimer()
         self._display_timer.timeout.connect(self._flush_pending)
         self._display_timer.start(self._interval_spin.value())
+
+        # Receive-rate display timer
+        self._rx_timer = QTimer()
+        self._rx_timer.timeout.connect(self._update_rx_label)
+        self._rx_timer.start(1000)
 
     # ------------------------------------------------------------------
     def _build_ui(self):
@@ -148,6 +173,10 @@ class MainWindow(QMainWindow):
         root.addWidget(self._tabs)
 
         self.setStatusBar(QStatusBar())
+        self._rx_label = QLabel("受信: 0 B  |  0 B/s")
+        self._rx_label.setStyleSheet("color: gray;")
+        self._rx_label.setToolTip("受信した総バイト数 / 直近1秒あたりの受信レート")
+        self.statusBar().addPermanentWidget(self._rx_label)
 
     def _connect_signals(self):
         self._worker.data_received.connect(self._on_raw_data)
@@ -169,6 +198,9 @@ class MainWindow(QMainWindow):
         self._port_combo.addItems(ports)
         if current in ports:
             self._port_combo.setCurrentText(current)
+        elif self._last_port in ports:
+            # Select the port used last time when it appears
+            self._port_combo.setCurrentText(self._last_port)
         self._port_combo.blockSignals(False)
 
     def _toggle_connection(self, checked: bool):
@@ -192,6 +224,8 @@ class MainWindow(QMainWindow):
                 self._parser.reset()
                 self._pending_lines.clear()
                 self._pending_samples.clear()
+                self._reset_rx_stats()
+                self._save_settings()
             else:
                 self._conn_btn.setChecked(False)
         else:
@@ -235,6 +269,7 @@ class MainWindow(QMainWindow):
             self._graph.clear()
             self._pending_lines.clear()
             self._pending_samples.clear()
+            self._save_settings()
 
     def _channel_names_from_config(self) -> list[str]:
         if self._config.mode == "binary":
@@ -251,6 +286,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Data reception (called from QThread via signal — safe to buffer here)
     def _on_raw_data(self, data: bytes):
+        self._rx_total += len(data)
+        self._rx_window += len(data)
         self._parser.feed(data)
 
     def _on_text_line(self, line: str):
@@ -275,9 +312,8 @@ class MainWindow(QMainWindow):
     # Flush buffers to UI at the configured display rate
     def _flush_pending(self):
         if self._pending_lines:
-            for line in self._pending_lines:
-                self._console.append_line(line)
-            self._pending_lines.clear()
+            self._console.append_lines(self._pending_lines)
+            self._pending_lines = []
 
         if self._pending_samples:
             for timestamp, values, names in self._pending_samples:
@@ -316,14 +352,74 @@ class MainWindow(QMainWindow):
             self._status_label.setStyleSheet("color: gray;")
 
     def _on_send(self, text: str):
-        self._worker.send((text + "\n").encode("utf-8"))
+        # text already includes the line ending selected in the console
+        if not self._connected:
+            self.statusBar().showMessage("未接続のため送信できません", 3000)
+            return
+        self._worker.send(text.encode("utf-8"))
+
+    # ------------------------------------------------------------------
+    def _reset_rx_stats(self):
+        self._rx_total = 0
+        self._rx_window = 0
+        self._rx_window_t = time.monotonic()
+        self._update_rx_label()
+
+    def _update_rx_label(self):
+        now = time.monotonic()
+        dt = now - self._rx_window_t
+        rate = self._rx_window / dt if dt > 0 else 0.0
+        self._rx_window = 0
+        self._rx_window_t = now
+        self._rx_label.setText(
+            f"受信: {_format_bytes(self._rx_total)}  |  {_format_bytes(rate)}/s"
+        )
+
+    # ------------------------------------------------------------------
+    # Persist settings between launches
+    def _load_settings(self):
+        st = self._settings
+        baud = st.value("baud", "", type=str)
+        if baud in _BAUD_RATES:
+            self._baud_combo.setCurrentText(baud)
+        self._last_port = st.value("port", "", type=str)
+        interval = st.value("interval_ms", 0, type=int)
+        if interval:
+            self._interval_spin.setValue(interval)
+        self._console.set_line_ending_index(st.value("line_ending", 0, type=int))
+        geom = st.value("geometry")
+        if geom is not None:
+            self.restoreGeometry(geom)
+        cfg_json = st.value("protocol", "", type=str)
+        if cfg_json:
+            try:
+                self._config = ProtocolConfig.from_dict(json.loads(cfg_json))
+                self._parser.set_config(self._config)
+                names = self._channel_names_from_config()
+                if names:
+                    self._graph.set_channels(names)
+            except (ValueError, TypeError, AttributeError):
+                self._config = ProtocolConfig()
+
+    def _save_settings(self):
+        st = self._settings
+        st.setValue("baud", self._baud_combo.currentText())
+        port = self._reconnect_port or self._port_combo.currentText()
+        if port:
+            st.setValue("port", port)
+        st.setValue("interval_ms", self._interval_spin.value())
+        st.setValue("line_ending", self._console.line_ending_index())
+        st.setValue("geometry", self.saveGeometry())
+        st.setValue("protocol", json.dumps(self._config.to_dict()))
 
     def _on_tab_changed(self, index: int):
         if self._tabs.widget(index) is self._analysis:
             self._analysis.refresh()
 
     def closeEvent(self, event):
+        self._save_settings()
         self._display_timer.stop()
+        self._rx_timer.stop()
         self._reconnect_timer.stop()
         self._worker.disconnect()
         event.accept()

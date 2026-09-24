@@ -1,6 +1,6 @@
 ; Serial Monitor - Windows Installer Script (Inno Setup 6)
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.5"
+  #define MyAppVersion "1.2.0"
 #endif
 
 [Setup]

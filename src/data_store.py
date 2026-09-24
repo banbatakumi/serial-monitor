@@ -54,18 +54,26 @@ class DataStore:
         return {name: ch.stats() for name, ch in self._channels.items()}
 
     def export_csv(self, path: str):
+        """Write all channels to CSV, one row per timestamp.
+
+        Channels may be sampled at different times (e.g. labeled mode where
+        a key appears only on some lines), so rows are merged by timestamp
+        instead of by index. Missing values are left empty.
+        """
         if not self._channels:
             return
         names = self.channel_names()
-        arrays = {n: self._channels[n].to_arrays() for n in names}
-        ref_ts = arrays[names[0]][0]
+        rows: dict[float, dict[str, float]] = {}
+        for n in names:
+            ch = self._channels[n]
+            for t, v in zip(ch.timestamps, ch.values):
+                rows.setdefault(t, {})[n] = v
 
-        with open(path, "w", newline="") as f:
+        with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["time_s"] + names)
-            for i, t in enumerate(ref_ts):
-                row = [f"{t:.6f}"]
-                for n in names:
-                    ts_arr, val_arr = arrays[n]
-                    row.append(f"{val_arr[i]:.6f}" if i < len(val_arr) else "")
-                writer.writerow(row)
+            for t in sorted(rows):
+                vals = rows[t]
+                writer.writerow(
+                    [f"{t:.6f}"] + [f"{vals[n]:.6f}" if n in vals else "" for n in names]
+                )

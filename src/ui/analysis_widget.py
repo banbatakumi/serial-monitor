@@ -51,6 +51,9 @@ class AnalysisWidget(QWidget):
         self._plot.setLabel("bottom", "経過時間 (s)")
         self._plot.setLabel("left", "値")
         self._plot.setLimits(xMin=0)
+        # Up to 100k points per channel: draw only what is visible, downsampled
+        self._plot.setDownsampling(auto=True, mode="peak")
+        self._plot.setClipToView(True)
         splitter.addWidget(self._plot)
 
         # Statistics table

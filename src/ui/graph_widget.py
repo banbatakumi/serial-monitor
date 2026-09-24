@@ -93,59 +93,63 @@ class RealtimeGraphWidget(QWidget):
                     w.setParent(None)
         self._channels.clear()
 
-        for i, name in enumerate(names):
-            color = COLORS[i % len(COLORS)]
-            pen = pg.mkPen(color=color, width=2)
-            curve = self._plot.plot([], [], name=name, pen=pen)
-            buf_ts: deque[float] = deque(maxlen=100_000)
-            buf_val: deque[float] = deque(maxlen=100_000)
+        for name in names:
+            self._add_channel(name)
 
-            cb = QCheckBox(f"■ {name}")
-            cb.setChecked(True)
-            cb.setStyleSheet(
-                f"color: {color}; font-weight: bold;"
-                f"QCheckBox::indicator {{ border: 2px solid {color}; }}"
-                f"QCheckBox::indicator:checked {{ background-color: {color}; }}"
-            )
-            cb.stateChanged.connect(lambda state, c=curve: c.setVisible(state == 2))
+    def _add_channel(self, name: str):
+        """Add one channel without touching existing channels' data/settings."""
+        color = COLORS[len(self._channels) % len(COLORS)]
+        pen = pg.mkPen(color=color, width=2)
+        curve = self._plot.plot([], [], name=name, pen=pen)
+        buf_ts: deque[float] = deque(maxlen=100_000)
+        buf_val: deque[float] = deque(maxlen=100_000)
 
-            scale_label = QLabel("×")
-            scale_label.setStyleSheet(f"color: {color};")
+        cb = QCheckBox(f"■ {name}")
+        cb.setChecked(True)
+        cb.setStyleSheet(
+            f"color: {color}; font-weight: bold;"
+            f"QCheckBox::indicator {{ border: 2px solid {color}; }}"
+            f"QCheckBox::indicator:checked {{ background-color: {color}; }}"
+        )
+        cb.stateChanged.connect(lambda state, c=curve: c.setVisible(state == 2))
 
-            scale_spin = QDoubleSpinBox()
-            scale_spin.setRange(-1e6, 1e6)
-            scale_spin.setValue(1.0)
-            scale_spin.setDecimals(3)
-            scale_spin.setSingleStep(0.1)
-            scale_spin.setFixedWidth(80)
-            scale_spin.valueChanged.connect(lambda val, n=name: self._on_scale_changed(n, val))
+        scale_label = QLabel("×")
+        scale_label.setStyleSheet(f"color: {color};")
 
-            pos = self._vis_row.count() - 1
-            self._vis_row.insertWidget(pos,     cb)
-            self._vis_row.insertWidget(pos + 1, scale_label)
-            self._vis_row.insertWidget(pos + 2, scale_spin)
+        scale_spin = QDoubleSpinBox()
+        scale_spin.setRange(-1e6, 1e6)
+        scale_spin.setValue(1.0)
+        scale_spin.setDecimals(3)
+        scale_spin.setSingleStep(0.1)
+        scale_spin.setFixedWidth(80)
+        scale_spin.valueChanged.connect(lambda val, n=name: self._on_scale_changed(n, val))
 
-            self._channels[name] = {
-                "curve": curve,
-                "buf_ts": buf_ts,
-                "buf_val": buf_val,
-                "checkbox": cb,
-                "scale_label": scale_label,
-                "scale_spin": scale_spin,
-                "scale": 1.0,
-            }
+        pos = self._vis_row.count() - 1
+        self._vis_row.insertWidget(pos,     cb)
+        self._vis_row.insertWidget(pos + 1, scale_label)
+        self._vis_row.insertWidget(pos + 2, scale_spin)
+
+        self._channels[name] = {
+            "curve": curve,
+            "buf_ts": buf_ts,
+            "buf_val": buf_val,
+            "checkbox": cb,
+            "scale_label": scale_label,
+            "scale_spin": scale_spin,
+            "scale": 1.0,
+        }
 
     def add_sample(self, timestamp: float, values: list[float], channel_names: list[str]):
         """Append data to buffers only. Call refresh_curves() to redraw."""
         if self._pause_btn.isChecked():
             return
-        if not self._channels:
-            self.set_channels(channel_names)
 
         for name, val in zip(channel_names, values):
-            if name not in self._channels:
-                self.set_channels(list(self._channels.keys()) + [name])
-            ch = self._channels[name]
+            ch = self._channels.get(name)
+            if ch is None:
+                # New label appeared: add it while keeping existing curves
+                self._add_channel(name)
+                ch = self._channels[name]
             ch["buf_ts"].append(timestamp)
             ch["buf_val"].append(val)
 
@@ -213,3 +217,4 @@ class RealtimeGraphWidget(QWidget):
             ch["buf_ts"].clear()
             ch["buf_val"].clear()
             ch["curve"].setData([], [])
+        self._latest_ts = None
