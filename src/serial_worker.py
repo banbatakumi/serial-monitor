@@ -49,7 +49,7 @@ class SerialWorker(QThread):
         if self._port and self._port.is_open:
             try:
                 self._port.write(data)
-            except serial.SerialException as e:
+            except (serial.SerialException, OSError) as e:
                 self.error_occurred.emit(str(e))
 
     def run(self):
@@ -61,7 +61,9 @@ class SerialWorker(QThread):
                         self.data_received.emit(data)
                 else:
                     self.msleep(5)
-            except serial.SerialException as e:
-                self.error_occurred.emit(str(e))
+            except (serial.SerialException, OSError, TypeError, AttributeError) as e:
+                # On USB unplug, in_waiting (ioctl) raises a plain OSError,
+                # not SerialException — catch both so auto-reconnect kicks in.
+                self.error_occurred.emit(str(e) or type(e).__name__)
                 break
         self.disconnected.emit()

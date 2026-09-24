@@ -16,6 +16,10 @@ Arduino / STM32 などのマイコンからのシリアルデータをリアル�
 - **CSV エクスポート** — 受信データを CSV ファイルに書き出し
 - **生データモード** — バッファリングなしで受信データをそのまま表示
 - **ボーレート対応** — 9600 〜 921600 bps（250000 bps を含む）
+- **受信レート表示** — 総受信バイト数と B/s をステータスバーに表示
+- **送信時の改行コード選択** — LF / CRLF / CR / なし
+- **設定の保存** — ポート・ボーレート・プロトコル設定・更新周期などを次回起動時に復元
+- **自動再接続** — USB を抜き差ししても自動で再接続
 
 ---
 
@@ -25,8 +29,8 @@ Arduino / STM32 などのマイコンからのシリアルデータをリアル�
 
 | プラットフォーム | ファイル |
 |---|---|
-| macOS (Apple Silicon) | `SerialMonitor-1.1.5-macOS.dmg` |
-| Windows (x64) | `SerialMonitor-1.1.5-Windows.exe` |
+| macOS (Apple Silicon) | `SerialMonitor-1.2.0-macOS.dmg` |
+| Windows (x64) | `SerialMonitor-1.2.0-Windows.exe` |
 
 ### インストール方法
 
@@ -155,7 +159,7 @@ arch -arm64 python setup.py py2app
 pip install pyinstaller
 pyinstaller build_windows.spec
 # Inno Setup がインストールされている場合
-ISCC.exe /DMyAppVersion=1.1.5 installer.iss
+ISCC.exe /DMyAppVersion=1.2.0 installer.iss
 ```
 
 GitHub Actions により、タグ push 時に両プラットフォームのビルドが自動実行されます。
